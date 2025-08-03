@@ -28,7 +28,7 @@ const app = express();
 // It explicitly allows your frontend's origin, allows credentials,
 // and tells the browser which headers are safe to send.
 const corsOptions = {
-  origin: 'http://localhost:3000',
+  origin: 'http://localhost:3001',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'auth-token'], // IMPORTANT: Allow the auth-token header
