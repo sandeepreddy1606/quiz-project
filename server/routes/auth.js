@@ -2,59 +2,129 @@ const router = require('express').Router();
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const passport = require('passport');
 
-// Register a new user
+// Register a new user (simplified)
 router.post('/register', async (req, res) => {
-  const { firstName, lastName, email, phoneNumber, gender, password, confirmPassword } = req.body;
-  if (!firstName || !lastName || !email || !phoneNumber || !gender || !password) {
-    return res.status(400).json({ message: "Please fill out all fields." });
-  }
-  if (password !== confirmPassword) {
-    return res.status(400).json({ field: 'confirmPassword', message: "Passwords do not match." });
-  }
-  try {
-    if (await User.findOne({ email })) return res.status(400).json({ field: 'email', message: "This email is already registered." });
-    if (await User.findOne({ phoneNumber })) return res.status(400).json({ field: 'phoneNumber', message: "This phone number is already registered." });
+    console.log('📝 Registration request received:', req.body);
     
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-    const newUser = new User({ firstName, lastName, email, phoneNumber, gender, password: hashedPassword });
-    await newUser.save();
-    res.status(201).json({ message: "User registered successfully!" });
-  } catch (error) {
-    res.status(500).json({ message: "Server error during registration." });
-  }
+    try {
+        const { email, password, confirmPassword } = req.body;
+        
+        if (!email || !password || !confirmPassword) {
+            return res.status(400).json({ message: "Please fill out all fields." });
+        }
+        
+        if (password !== confirmPassword) {
+            return res.status(400).json({ 
+                field: 'confirmPassword', 
+                message: "Passwords do not match." 
+            });
+        }
+
+        if (password.length < 6) {
+            return res.status(400).json({ 
+                field: 'password', 
+                message: "Password must be at least 6 characters long." 
+            });
+        }
+        
+        // Check for existing user
+        const existingUser = await User.findOne({ email: email.toLowerCase() });
+        if (existingUser) {
+            return res.status(400).json({ 
+                field: 'email', 
+                message: "This email is already registered." 
+            });
+        }
+        
+        // Create new user (simplified fields)
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+        
+        const newUser = new User({ 
+            firstName: 'User', // Default value
+            lastName: 'Name',  // Default value
+            email: email.toLowerCase().trim(),
+            phoneNumber: Date.now().toString(), // Generate unique phone number
+            gender: 'other', // Default value
+            password: hashedPassword 
+        });
+        
+        const savedUser = await newUser.save();
+        console.log('✅ User created successfully:', savedUser.email);
+        
+        res.status(201).json({ 
+            success: true,
+            message: "User registered successfully!" 
+        });
+        
+    } catch (error) {
+        console.error('❌ Registration error:', error);
+        res.status(500).json({ message: "Server error during registration." });
+    }
 });
 
-// Login a user (manual)
+// Login a user - FIXED VERSION
 router.post('/login', async (req, res) => {
-  try {
-    const user = await User.findOne({ email: req.body.email });
-    if (!user) return res.status(400).json({ message: "Invalid credentials." });
-    if (!user.password) return res.status(400).json({ message: "Please sign in with Google." });
+    console.log('🔑 Login attempt for:', req.body.email);
     
-    const validPassword = await bcrypt.compare(req.body.password, user.password);
-    if (!validPassword) return res.status(400).json({ message: "Invalid credentials." });
-    
-    const token = jwt.sign({ _id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    res.json({ token });
-  } catch (error) {
-    res.status(500).json({ message: "Server error during login." });
-  }
+    try {
+        const { email, password } = req.body;
+        
+        // Validate input
+        if (!email || !password) {
+            console.log('❌ Missing email or password');
+            return res.status(400).json({ message: "Please provide email and password." });
+        }
+        
+        // Find user
+        const user = await User.findOne({ email: email.toLowerCase() });
+        console.log('🔍 User found:', user ? 'Yes' : 'No');
+        
+        if (!user) {
+            console.log('❌ User not found for email:', email);
+            return res.status(400).json({ message: "Invalid credentials." });
+        }
+        
+        // Check if user has password (shouldn't be an issue now, but good check)
+        if (!user.password) {
+            console.log('❌ User has no password');
+            return res.status(400).json({ message: "Invalid credentials." });
+        }
+        
+        console.log('🔐 Comparing passwords...');
+        const validPassword = await bcrypt.compare(password, user.password);
+        console.log('🔐 Password valid:', validPassword ? 'Yes' : 'No');
+        
+        if (!validPassword) {
+            console.log('❌ Invalid password for user:', email);
+            return res.status(400).json({ message: "Invalid credentials." });
+        }
+        
+        // Check JWT_SECRET
+        if (!process.env.JWT_SECRET) {
+            console.error('❌ JWT_SECRET is missing!');
+            return res.status(500).json({ message: "Server configuration error." });
+        }
+        
+        console.log('🎫 Generating JWT token...');
+        const token = jwt.sign({ _id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        console.log('✅ Login successful for:', user.email);
+        
+        res.json({ 
+            success: true,
+            token,
+            user: {
+                id: user._id,
+                email: user.email
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Login error:', error);
+        console.error('❌ Error details:', error.message);
+        res.status(500).json({ message: "Server error during login." });
+    }
 });
-
-// Google Auth routes
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-
-router.get('/google/callback', passport.authenticate('google', { 
-    failureRedirect: 'http://localhost:3000/auth',
-    session: false 
-  }),
-  (req, res) => {
-    const token = jwt.sign({ _id: req.user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    res.redirect(`http://localhost:3000/auth?token=${token}`);
-  }
-);
 
 module.exports = router;
